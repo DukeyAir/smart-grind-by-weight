@@ -33,23 +33,13 @@ void GrindController::init(WeightSensor* lc, Grinder* gr, Preferences* prefs) {
     target_time_ms = 0;
     time_grind_start_ms = 0;
     mode = GrindMode::WEIGHT;
-    grinder_purge_mode_for_session = static_cast<GrinderPurgeMode>(GRIND_PURGE_MODE_DEFAULT);
-    grinder_purge_amount_g_for_session = GRIND_PURGE_AMOUNT_DEFAULT_G;
     last_error_message[0] = '\0';
     last_session_result_ = GrindSessionResult::UNKNOWN;
-    control_loop_paused_ = false;
 
     mechanical_anomaly_count_ = 0;
     last_mechanical_event_ms_ = 0;
     last_mechanical_weight_ = 0.0f;
     mechanical_monitor_initialized_ = false;
-
-    // Initialize grind freshness tracking
-    grinder_purged_since_boot = false;
-    last_purge_runtime_ms = 0;
-    if (preferences) {
-        last_purge_runtime_ms = preferences->getULong64(PREF_KEY_LAST_GRIND_RUNTIME, 0);
-    }
 
     // Set up grinder background indicator callback (if enabled)
     if (grinder) {
@@ -122,22 +112,9 @@ void GrindController::start_grind(float target, uint32_t time_ms, GrindMode grin
     target_time_ms = time_ms;
     mode = grind_mode;
 
-    // Read grinder purge settings from preferences (always run for weight mode)
-    grinder_purge_mode_for_session = static_cast<GrinderPurgeMode>(GRIND_PURGE_MODE_DEFAULT);
-    grinder_purge_amount_g_for_session = GRIND_PURGE_AMOUNT_DEFAULT_G;
-    if (preferences) {
-        int purge_mode_int = preferences->getInt(PREF_KEY_GRINDER_MODE, GRIND_PURGE_MODE_DEFAULT);
-        grinder_purge_mode_for_session = static_cast<GrinderPurgeMode>(purge_mode_int);
-        float configured_amount = preferences->getFloat(PREF_KEY_GRINDER_AMOUNT_G, GRIND_PURGE_AMOUNT_DEFAULT_G);
-        configured_amount = std::clamp(configured_amount, GRIND_PURGE_AMOUNT_MIN_G, GRIND_PURGE_AMOUNT_MAX_G);
-        grinder_purge_amount_g_for_session = configured_amount;
-    }
-
     start_time = millis();
     pulse_attempts = 0;
     timeout_phase = GrindPhase::IDLE; // Initialize timeout phase
-    timeout_pause_start = 0;
-    timeout_offset_ms = 0;
     last_session_result_ = GrindSessionResult::UNKNOWN;
     // Load cell now runs at constant high speed - no mode switching needed
     
@@ -179,8 +156,6 @@ void GrindController::start_grind(float target, uint32_t time_ms, GrindMode grin
     // Initialize pulse tracking
     additional_pulse_count = 0;
     pulse_duration_ms = GRIND_TIME_PULSE_DURATION_MS;
-    control_loop_paused_ = false;
-
     reset_mechanical_anomaly_count();
 
     if (diagnostics_controller_) {
@@ -221,8 +196,6 @@ void GrindController::return_to_idle() {
         LOG_BLE("[%lums CONTROLLER] UI acknowledged completion/timeout, returning to IDLE.\n", millis());
         time_grind_start_ms = 0;
         target_time_ms = 0;
-        grinder_purge_mode_for_session = static_cast<GrinderPurgeMode>(GRIND_PURGE_MODE_DEFAULT);
-        grinder_purge_amount_g_for_session = GRIND_PURGE_AMOUNT_DEFAULT_G;
         last_error_message[0] = '\0';
         if (active_strategy) {
             active_strategy->on_exit(session_descriptor, strategy_context);
@@ -245,41 +218,12 @@ void GrindController::stop_grind() {
 
     time_grind_start_ms = 0;
     target_time_ms = 0;
-    grinder_purge_mode_for_session = static_cast<GrinderPurgeMode>(GRIND_PURGE_MODE_DEFAULT);
-    grinder_purge_amount_g_for_session = GRIND_PURGE_AMOUNT_DEFAULT_G;
     last_error_message[0] = '\0';
     if (active_strategy) {
         active_strategy->on_exit(session_descriptor, strategy_context);
         active_strategy = nullptr;
     }
     switch_phase(GrindPhase::IDLE);  // No loop_data needed for IDLE transition
-}
-
-void GrindController::continue_from_purge() {
-    // Called by UI when user confirms purge completion
-    if (phase != GrindPhase::PURGE_CONFIRM) {
-        LOG_BLE("[%lums CONTROLLER] Warning: continue_from_purge() called in wrong phase: %s\n",
-                millis(), get_phase_name());
-        return;
-    }
-
-    LOG_BLE("[%lums CONTROLLER] User confirmed purge, continuing to PREDICTIVE\n", millis());
-
-    // Add time spent in PURGE_CONFIRM to timeout offset (exclude from timeout calculation)
-    if (timeout_pause_start > 0) {
-        unsigned long pause_duration = millis() - timeout_pause_start;
-        timeout_offset_ms += pause_duration;
-        LOG_BLE("[%lums CONTROLLER] Excluding %lums pause time from timeout (total offset: %lums)\n",
-                millis(), pause_duration, timeout_offset_ms);
-        timeout_pause_start = 0;
-    }
-
-    // Start motor and transition to predictive grinding
-    if (grinder) {
-        grinder->start();
-    }
-    time_grind_start_ms = millis();
-    switch_phase(GrindPhase::PREDICTIVE);  // No loop_data needed for phase transition
 }
 
 void GrindController::update() {
@@ -298,15 +242,6 @@ void GrindController::update() {
     loop_data.flow_rate = weight_sensor ? weight_sensor->get_flow_rate() : 0.0f;
     loop_data.weight_delta = loop_data.current_weight - last_logged_weight;
 
-    if (control_loop_paused_) {
-        emit_progress_update(loop_data);
-
-        // Keep measurement baseline aligned for when logging resumes
-        last_logged_weight = loop_data.current_weight;
-        last_logged_time = loop_data.now;
-        return;
-    }
-    
     // Increment loop counter for current phase performance tracking
     current_phase_loop_count = current_phase_loop_count + 1;
 
@@ -357,80 +292,11 @@ void GrindController::update() {
                     if (mode == GrindMode::TIME) {
                         switch_phase(GrindPhase::TIME_GRINDING, loop_data);
                     } else {
-                        // Always run chute operation for weight mode
-                        switch_phase(GrindPhase::PRIME, loop_data);
+                        switch_phase(GrindPhase::PREDICTIVE, loop_data);
                     }
                 }
             }
             break;
-
-        case GrindPhase::PRIME: {
-            if (!grinder->is_grinding()) {
-                grinder->start();
-            }
-
-            // Use configurable grinder purge amount
-            bool reached_weight = loop_data.current_weight >= grinder_purge_amount_g_for_session;
-            bool exceeded_duration = (loop_data.now - phase_start_time) >= GRIND_PRIME_MAX_DURATION_MS;
-            if (reached_weight || exceeded_duration) {
-                grinder->stop();
-                if (exceeded_duration && !reached_weight) {
-                    queue_log_message("[GRINDER] Max duration reached (%.2fg delivered)\n", loop_data.current_weight);
-                }
-                switch_phase(GrindPhase::PRIME_SETTLING, loop_data);
-            }
-            break;
-        }
-
-        case GrindPhase::PRIME_SETTLING: {
-            if (!weight_sensor) {
-                break;
-            }
-
-            bool settled = weight_sensor->check_settling_complete(GRIND_SCALE_PRECISION_SETTLING_TIME_MS);
-            bool settling_timed_out = (loop_data.now - phase_start_time) >= GRIND_SCALE_SETTLING_TIMEOUT_MS;
-            if (settled || settling_timed_out) {
-                if (settling_timed_out && !settled) {
-                    queue_log_message("[GRINDER] Settling timeout, resuming grind\n");
-                }
-                flow_start_confirmed = false;
-                grind_latency_ms = 0;
-
-                // Check if grounds are stale and purge confirmation should be shown
-                bool should_show_purge_popup = false;
-                if (!grinder_purged_since_boot) {
-                    // First grind since boot - grounds are stale
-                    should_show_purge_popup = true;
-                } else {
-                    // Check if enough time has elapsed since last grind
-                    uint64_t current_ms = esp_timer_get_time() / 1000;
-                    uint64_t elapsed_ms = current_ms - last_purge_runtime_ms;
-                    float freshness_hours = preferences ? preferences->getFloat(PREF_KEY_GRIND_FRESHNESS_HOURS, GRIND_FRESHNESS_DEFAULT_HOURS) : GRIND_FRESHNESS_DEFAULT_HOURS;
-                    uint64_t threshold_ms = (uint64_t)(freshness_hours * 3600000.0f);
-                    should_show_purge_popup = (elapsed_ms > threshold_ms);
-                }
-
-                // Determine next phase based on mode AND staleness
-                if (grinder_purge_mode_for_session == GrinderPurgeMode::PURGE && should_show_purge_popup) {
-                    // Purge mode with stale grounds: wait for user confirmation before continuing
-                    timeout_pause_start = loop_data.now;  // Track when pause started for timeout offset
-                    switch_phase(GrindPhase::PURGE_CONFIRM, loop_data);
-                } else {
-                    // Prime mode OR fresh grounds: continue immediately to grinding
-                    grinder->start();
-                    time_grind_start_ms = loop_data.now;
-                    switch_phase(GrindPhase::PREDICTIVE, loop_data);
-                }
-            }
-            break;
-        }
-
-        case GrindPhase::PURGE_CONFIRM: {
-            // This phase waits for UI confirmation
-            // The UI will call a method to acknowledge and continue to PREDICTIVE
-            // For now, this case just holds the state
-            break;
-        }
 
         case GrindPhase::TIME_GRINDING:
             if (mode == GrindMode::TIME && active_strategy) {
@@ -566,7 +432,7 @@ void GrindController::update() {
         switch_phase(GrindPhase::TIMEOUT, loop_data);
     }
     // Only check timeout during active grinding phases, not during completion states or user confirmation
-    else if (phase != GrindPhase::COMPLETED && phase != GrindPhase::TIMEOUT && phase != GrindPhase::PURGE_CONFIRM && check_timeout()) {
+    else if (phase != GrindPhase::COMPLETED && phase != GrindPhase::TIMEOUT && check_timeout()) {
         timeout_phase = phase;
         grinder->stop();
         last_session_result_ = GrindSessionResult::TIMEOUT;
@@ -670,7 +536,7 @@ void GrindController::switch_phase(GrindPhase new_phase, const GrindLoopData& lo
         } else if (phase == GrindPhase::PULSE_DECISION) {
             event_in_progress.pulse_flow_rate = pulse_flow_rate;
             event_in_progress.loop_count = current_phase_loop_count;
-        } else if (phase == GrindPhase::PULSE_SETTLING || phase == GrindPhase::FINAL_SETTLING || phase == GrindPhase::PRIME_SETTLING) {
+        } else if (phase == GrindPhase::PULSE_SETTLING || phase == GrindPhase::FINAL_SETTLING) {
             event_in_progress.settling_duration_ms = event_in_progress.duration_ms;
             event_in_progress.pulse_flow_rate = pulse_flow_rate;
             event_in_progress.loop_count = current_phase_loop_count;
@@ -679,7 +545,7 @@ void GrindController::switch_phase(GrindPhase new_phase, const GrindLoopData& lo
         // For all other phases, just log the general loop count
         if (phase != GrindPhase::PREDICTIVE && phase != GrindPhase::PULSE_EXECUTE && 
             phase != GrindPhase::PULSE_DECISION && phase != GrindPhase::PULSE_SETTLING && 
-            phase != GrindPhase::FINAL_SETTLING && phase != GrindPhase::PRIME_SETTLING) {
+            phase != GrindPhase::FINAL_SETTLING) {
             event_in_progress.loop_count = current_phase_loop_count;
         }
 
@@ -688,7 +554,6 @@ void GrindController::switch_phase(GrindPhase new_phase, const GrindLoopData& lo
     
     // Update phase state
     phase = new_phase;
-    control_loop_paused_ = (phase == GrindPhase::PURGE_CONFIRM);
     phase_start_time = now;
     
     // Reset loop counter for new phase
@@ -709,7 +574,6 @@ void GrindController::switch_phase(GrindPhase new_phase, const GrindLoopData& lo
         }
 
         switch (new_phase) {
-            case GrindPhase::PRIME:
             case GrindPhase::PREDICTIVE:
             case GrindPhase::TIME_GRINDING:
                 event_in_progress.event_flags |= GRIND_EVENT_FLAG_MOTOR_ACTIVE;
@@ -757,13 +621,6 @@ void GrindController::switch_phase(GrindPhase new_phase, const GrindLoopData& lo
         }
         last_session_result_ = session_result;
 
-        // Update grind freshness tracking
-        grinder_purged_since_boot = true;
-        last_purge_runtime_ms = esp_timer_get_time() / 1000;
-        if (preferences) {
-            preferences->putULong64(PREF_KEY_LAST_GRIND_RUNTIME, last_purge_runtime_ms);
-        }
-
         event_data.event = UIGrindEvent::COMPLETED;
         // Use final_weight if available (from final_measurement), otherwise use high latency weight
         event_data.final_weight = (final_weight > 0) ? final_weight : 
@@ -796,10 +653,8 @@ void GrindController::switch_phase(GrindPhase new_phase, const GrindLoopData& lo
 
 
 bool GrindController::check_timeout() const {
-    // Calculate elapsed time excluding paused states (like PURGE_CONFIRM)
     unsigned long elapsed_ms = millis() - start_time;
-    unsigned long active_time_ms = elapsed_ms - timeout_offset_ms;
-    return active_time_ms >= (GRIND_TIMEOUT_SEC * 1000);
+    return elapsed_ms >= (GRIND_TIMEOUT_SEC * 1000);
 }
 
 bool GrindController::is_active() const {
@@ -836,9 +691,6 @@ const char* GrindController::get_phase_name(GrindPhase p) const {
         case GrindPhase::SETUP: return "SETUP";
         case GrindPhase::TARING: return "TARING";
         case GrindPhase::TARE_CONFIRM: return "TARE_CONFIRM";
-        case GrindPhase::PRIME: return "PRIME";
-        case GrindPhase::PRIME_SETTLING: return "PRIME_SETTLING";
-        case GrindPhase::PURGE_CONFIRM: return "PURGE_CONFIRM";
         case GrindPhase::PREDICTIVE: return "PREDICTIVE";
         case GrindPhase::PULSE_DECISION: return "PULSE_DECISION";
         case GrindPhase::PULSE_EXECUTE: return "PULSE_EXECUTE";
@@ -936,8 +788,7 @@ bool GrindController::should_log_measurements() const {
         && phase != GrindPhase::INITIALIZING
         && phase != GrindPhase::SETUP
         && phase != GrindPhase::COMPLETED
-        && phase != GrindPhase::TIMEOUT
-        && phase != GrindPhase::PURGE_CONFIRM;  // Don't log while waiting for user to confirm purge
+        && phase != GrindPhase::TIMEOUT;
 }
 
 void GrindController::process_queued_ui_events() {

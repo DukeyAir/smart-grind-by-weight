@@ -82,7 +82,6 @@ void UIManager::create_ui() {
     menu_screen.create(bluetooth_manager, grind_controller, &grinding_screen, hardware_manager, diagnostics_controller_.get());
     calibration_screen.create();
     confirm_screen.create();
-    purge_confirm_screen.create();
     autotune_screen.create();
     ota_screen.create();
     ota_update_failed_screen.create();
@@ -190,7 +189,6 @@ void UIManager::switch_to_state(UIState new_state) {
     menu_screen.hide();
     calibration_screen.hide();
     confirm_screen.hide();
-    purge_confirm_screen.hide();
     autotune_screen.hide();
     ota_screen.hide();
     ota_update_failed_screen.hide();
@@ -240,36 +238,6 @@ void UIManager::switch_to_state(UIState new_state) {
         case UIState::CONFIRM:
             confirm_screen.show();
             break;
-
-        case UIState::PURGE_CONFIRM: {
-            // Calculate and set dynamic message based on elapsed time
-            char message_buffer[128];
-            if (grind_controller && hardware_manager) {
-                if (!grind_controller->get_grinder_purged_since_boot()) {
-                    // First grind since boot
-                    snprintf(message_buffer, sizeof(message_buffer),
-                             "Previous grind time unknown. Remove the purge grinds if desired.");
-                } else {
-                    // Calculate elapsed time
-                    uint64_t current_ms = esp_timer_get_time() / 1000;
-                    uint64_t last_purge_ms = grind_controller->get_last_purge_runtime_ms();
-                    uint64_t elapsed_ms = current_ms - last_purge_ms;
-                    float elapsed_hours = elapsed_ms / 3600000.0f;
-                    int hours = (int)elapsed_hours;
-
-                    snprintf(message_buffer, sizeof(message_buffer),
-                             "Last grind >%dh ago. Remove the purge grinds if desired.", hours);
-                }
-            } else {
-                // Fallback message
-                snprintf(message_buffer, sizeof(message_buffer),
-                         "Remove the purge grinds if desired.");
-            }
-
-            purge_confirm_screen.set_message(message_buffer);
-            purge_confirm_screen.show();
-            break;
-        }
 
         case UIState::AUTOTUNING:
             autotune_screen.show();

@@ -1612,8 +1612,7 @@ void BluetoothManager::generate_diagnostic_report() {
                                 static const char* const phase_names[] = {
                                     "IDLE", "INITIALIZING", "SETUP", "TARING", "TARE_CONFIRM",
                                     "PREDICTIVE", "PULSE_DECISION", "PULSE_EXECUTE", "PULSE_SETTLING",
-                                    "FINAL_SETTLING", "TIME_GRINDING", "TIME_ADDITIONAL_PULSE", "COMPLETED", "TIMEOUT",
-                                    "PRIME", "PRIME_SETTLING", "PURGE_CONFIRM"
+                                    "FINAL_SETTLING", "TIME_GRINDING", "TIME_ADDITIONAL_PULSE", "COMPLETED", "TIMEOUT"
                                 };
                                 const size_t phase_name_count = sizeof(phase_names) / sizeof(phase_names[0]);
 

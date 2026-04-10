@@ -66,10 +66,7 @@ enum class GrindPhase {
     TIME_GRINDING,      // Time-based grinding phase
     TIME_ADDITIONAL_PULSE, // Additional pulse in time mode after completion
     COMPLETED,          // Grind completed (success, overshoot, or max pulses)
-    TIMEOUT,            // Grind timed out
-    PRIME,              // Optional chute priming/purging grind
-    PRIME_SETTLING,     // Settling after priming grind
-    PURGE_CONFIRM       // Waiting for user to confirm purge completion
+    TIMEOUT             // Grind timed out
 };
 
 
@@ -99,13 +96,9 @@ private:
     
     float tolerance;
     GrindMode mode;
-    GrinderPurgeMode grinder_purge_mode_for_session;
-    float grinder_purge_amount_g_for_session;
 
     // Timeout tracking
     GrindPhase timeout_phase;   // Phase when timeout occurred
-    unsigned long timeout_pause_start;  // When we entered a paused state (PURGE_CONFIRM)
-    unsigned long timeout_offset_ms;    // Accumulated time in paused states to exclude from timeout
     
     int pulse_attempts;
     unsigned long pulse_start_time;
@@ -139,7 +132,6 @@ private:
     // UI event system - thread-safe Core 0 → Core 1 communication
     QueueHandle_t ui_event_queue;
     
-    bool control_loop_paused_;      // Indicates control loop is suspended (e.g., purge confirmation)
     
     // Flash operation queue - thread-safe Core 0 → Core 1 communication
     QueueHandle_t flash_op_queue;
@@ -177,10 +169,6 @@ private:
     // Motor response latency - runtime configurable
     float motor_response_latency_ms;
 
-    // Grind freshness tracking
-    bool grinder_purged_since_boot;      // Tracks if grinder has been used since boot (RAM only)
-    uint64_t last_purge_runtime_ms;      // Runtime when last grind completed (persisted)
-
 public:
     enum class GrindSessionResult {
         UNKNOWN,
@@ -200,7 +188,6 @@ public:
     void user_tare_request();
     void return_to_idle(); // Called by UI to acknowledge completion/timeout
     void stop_grind();
-    void continue_from_purge(); // Called by UI to continue from PURGE_CONFIRM to PREDICTIVE
     void update(); // Core 0 main control method - runs at fixed RTOS interval
     
     // Time mode pulse functionality
@@ -224,14 +211,9 @@ public:
     void queue_log_message(const char* format, ...); // Core 0: Queue formatted log message
     
     bool is_active() const;
-    bool is_control_loop_paused() const { return control_loop_paused_; }
     float get_target_weight() const { return target_weight; }
     uint32_t get_target_time_ms() const { return target_time_ms; }
-    static constexpr const char* PREF_KEY_PRIME_ENABLED = "prime_enabled";
-    static constexpr const char* PREF_KEY_GRINDER_MODE = "grinder_mode";
-    static constexpr const char* PREF_KEY_GRINDER_AMOUNT_G = "grinder_amount_g";
-    static constexpr const char* PREF_KEY_GRIND_FRESHNESS_HOURS = "freshness_hrs";
-    static constexpr const char* PREF_KEY_LAST_GRIND_RUNTIME = "last_grind_ms";
+
     GrindMode get_mode() const { return mode; }
     const GrindSessionDescriptor& get_session_descriptor() const { return session_descriptor; }
     
@@ -259,10 +241,6 @@ public:
     void load_motor_latency();
     void save_motor_latency(float value);
 
-    // Grind freshness accessors
-    bool get_grinder_purged_since_boot() const { return grinder_purged_since_boot; }
-    uint64_t get_last_purge_runtime_ms() const { return last_purge_runtime_ms; }
-    
     // Removed - predictive logic now inline in update_realtime()
     
     

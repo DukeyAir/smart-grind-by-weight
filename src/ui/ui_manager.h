@@ -11,7 +11,6 @@
 #include "screens/menu_screen.h"
 #include "screens/calibration_screen.h"
 #include "screens/confirm_screen.h"
-#include "screens/purge_confirm_screen.h"
 #include "screens/ota_screen.h"
 #include "screens/ota_update_failed_screen.h"
 #include "screens/autotune_screen.h"
@@ -105,7 +104,6 @@ public:
     MenuScreen menu_screen;
     CalibrationScreen calibration_screen;
     ConfirmScreen confirm_screen;
-    PurgeConfirmScreen purge_confirm_screen;
     AutoTuneScreen autotune_screen;
     OTAScreen ota_screen;
     OtaUpdateFailedScreen ota_update_failed_screen;

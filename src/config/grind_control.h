@@ -8,24 +8,6 @@
 // pulse control algorithms.
 
 //------------------------------------------------------------------------------
-// GRINDER PURGE/PRIME
-//------------------------------------------------------------------------------
-// Grinder saturation modes
-enum class GrinderPurgeMode {
-    PRIME = 0,  // Saturate grinder, keep coffee, continue immediately
-    PURGE = 1   // Saturate grinder, prompt user to discard stale grinds
-};
-
-// Grinder saturation defaults and ranges
-#define GRIND_PURGE_MODE_DEFAULT static_cast<int>(GrinderPurgeMode::PURGE)
-#define GRIND_PURGE_AMOUNT_DEFAULT_G 1.0f
-#define GRIND_PURGE_AMOUNT_MIN_G 0.1f
-#define GRIND_PURGE_AMOUNT_MAX_G 2.5f
-
-// Grind freshness tracking
-#define GRIND_FRESHNESS_DEFAULT_HOURS 8.0f
-
-//------------------------------------------------------------------------------
 // GRIND CONTROL TUNING
 //------------------------------------------------------------------------------
 // Main accuracy and timeout settings
@@ -40,9 +22,6 @@ enum class GrinderPurgeMode {
 #define GRIND_UNDERSHOOT_TARGET_G 1.0f                                    // Default conservative undershoot target
 #define GRIND_LATENCY_TO_COAST_RATIO 1.0f                                 // Ratio of expected coast time to measured latency (e.g., 0.8 = 80%)
 
-// Prime phase behavior
-#define GRIND_PRIME_TARGET_WEIGHT_G 1.0f                                   // Amount of coffee delivered during chute priming
-#define GRIND_PRIME_MAX_DURATION_MS 5000                                   // Safety timeout for chute priming run
 
 //------------------------------------------------------------------------------
 // SCALE CALIBRATION AND SETTLING
