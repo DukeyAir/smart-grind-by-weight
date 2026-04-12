@@ -85,3 +85,10 @@
 #define GRIND_AUTOTUNE_COLLECTION_DELAY_MS 1500                                   // Minimum wait after pulse for grounds to drop
 #define GRIND_AUTOTUNE_SETTLING_TIMEOUT_MS 5000                                   // Max wait per pulse for scale settling
 #define GRIND_AUTOTUNE_WEIGHT_THRESHOLD_G GRIND_SCALE_SETTLING_TOLERANCE_G        // 0.010g detection threshold
+
+//------------------------------------------------------------------------------
+// PORTAFILTER AUTO-DETECTION
+//------------------------------------------------------------------------------
+#define PF_DETECT_TOLERANCE_PCT 0.03f   // ±3% of reference weight for match window
+#define PF_DETECT_MIN_WEIGHT_G  50.0f   // Minimum settled weight to attempt detection
+#define PF_WEIGH_TIMEOUT_MS     15000   // Max time to wait during weight-in procedure

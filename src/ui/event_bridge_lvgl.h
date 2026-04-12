@@ -47,6 +47,10 @@ public:
         CAL_MINUS,
         CONFIRM,
         CONFIRM_CANCEL,
+        PF_WEIGH_0,
+        PF_WEIGH_1,
+        PF_CLEAR_0,
+        PF_CLEAR_1,
         COUNT
     };
 

@@ -64,6 +64,11 @@ private:
     lv_obj_t* grind_freshness_hours_slider;
     lv_obj_t* grind_freshness_hours_label;
 
+    // Portafilter auto-detection elements
+    lv_obj_t* pf_ref_label_[2];
+    lv_obj_t* pf_weigh_button_[2];
+    lv_obj_t* pf_clear_button_[2];
+
     // Tools entries / scale page elements
     lv_obj_t* scale_item;
     lv_obj_t* cal_button;
@@ -133,6 +138,9 @@ public:
     lv_obj_t* get_auto_start_toggle() const { return auto_start_toggle; }
     lv_obj_t* get_auto_return_toggle() const { return auto_return_toggle; }
     lv_obj_t* get_grind_freshness_hours_slider() const { return grind_freshness_hours_slider; }
+    void update_portafilter_ref_weight(int index, float weight_g);
+    lv_obj_t* get_pf_weigh_button(int index) const { return (index >= 0 && index < 2) ? pf_weigh_button_[index] : nullptr; }
+    lv_obj_t* get_pf_clear_button(int index) const { return (index >= 0 && index < 2) ? pf_clear_button_[index] : nullptr; }
 
 private:
     void create_menu_ui();

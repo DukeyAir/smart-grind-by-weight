@@ -31,6 +31,7 @@
 #include "../controllers/profile_controller.h"
 #include "../controllers/grind_controller.h"
 #include "../controllers/grind_events.h"
+#include "../controllers/portafilter_manager.h"
 #include "../controllers/grind_mode.h"
 #include "../hardware/hardware_manager.h"
 #include "../bluetooth/manager.h"
@@ -132,8 +133,7 @@ public:
     
     void set_background_active(bool active);
     void refresh_auto_action_settings();
-    
-
+        void show_toast(const char* message, uint32_t duration_ms = 2000);
 private:
     void create_ui();
     void update_auto_actions();
@@ -149,4 +149,7 @@ private:
         uint32_t last_auto_start_ms = 0;
         uint32_t last_auto_return_ms = 0;
     } auto_actions_;
+
+    PortafilterManager portafilter_manager_;
+    bool portafilter_detection_ran_ = false;
 };

@@ -43,6 +43,11 @@ void MenuScreen::create(BluetoothManager* bluetooth, GrindController* grind_ctrl
     scale_item = nullptr;
     grind_freshness_hours_slider = nullptr;
     grind_freshness_hours_label = nullptr;
+    for (int i = 0; i < 2; ++i) {
+        pf_ref_label_[i]     = nullptr;
+        pf_weigh_button_[i]  = nullptr;
+        pf_clear_button_[i]  = nullptr;
+    }
     lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
 
     // Create menu UI immediately at boot for instant access
@@ -393,6 +398,36 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::GRIND_FRESHNESS_HOURS_SLIDER)));
         lv_obj_add_event_cb(grind_freshness_hours_slider, EventBridgeLVGL::dispatch_event, LV_EVENT_RELEASED,
                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::GRIND_FRESHNESS_HOURS_SLIDER_RELEASED)));
+    }
+
+    // Portafilter auto-detection section
+    create_separator(parent, "Portafilters");
+    create_description_label(parent, "Weigh each empty portafilter to enable auto profile switching.");
+
+    const char* pf_names[2] = {"Single", "Double"};
+    for (int i = 0; i < 2; ++i) {
+        create_data_label(parent, pf_names[i], &pf_ref_label_[i]);
+        create_dual_button_row(parent, &pf_weigh_button_[i], &pf_clear_button_[i],
+                               "WEIGH", "CLR",
+                               lv_color_hex(THEME_COLOR_PRIMARY),
+                               lv_color_hex(THEME_COLOR_NEUTRAL),
+                               60, &lv_font_montserrat_24);
+    }
+    if (pf_weigh_button_[0]) {
+        lv_obj_add_event_cb(pf_weigh_button_[0], EventBridgeLVGL::dispatch_event, LV_EVENT_CLICKED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::PF_WEIGH_0)));
+    }
+    if (pf_weigh_button_[1]) {
+        lv_obj_add_event_cb(pf_weigh_button_[1], EventBridgeLVGL::dispatch_event, LV_EVENT_CLICKED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::PF_WEIGH_1)));
+    }
+    if (pf_clear_button_[0]) {
+        lv_obj_add_event_cb(pf_clear_button_[0], EventBridgeLVGL::dispatch_event, LV_EVENT_CLICKED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::PF_CLEAR_0)));
+    }
+    if (pf_clear_button_[1]) {
+        lv_obj_add_event_cb(pf_clear_button_[1], EventBridgeLVGL::dispatch_event, LV_EVENT_CLICKED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::PF_CLEAR_1)));
     }
 }
 
@@ -1051,6 +1086,17 @@ void MenuScreen::update_scale_weight(float weight) {
     char buffer[24];
     snprintf(buffer, sizeof(buffer), SYS_WEIGHT_DISPLAY_FORMAT, weight);
     lv_label_set_text(scale_weight_label, buffer);
+}
+
+void MenuScreen::update_portafilter_ref_weight(int index, float weight_g) {
+    if (index < 0 || index >= 2 || !pf_ref_label_[index]) return;
+    char buf[24];
+    if (weight_g > 0.0f) {
+        snprintf(buf, sizeof(buf), "%.1fg", weight_g);
+    } else {
+        snprintf(buf, sizeof(buf), "---");
+    }
+    lv_label_set_text(pf_ref_label_[index], buf);
 }
 
 void MenuScreen::update_grind_mode_toggles() {

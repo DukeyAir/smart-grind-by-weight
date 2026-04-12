@@ -52,6 +52,11 @@ void MenuUIController::register_events() {
     EventBridgeLVGL::register_handler(ET::GRIND_FRESHNESS_HOURS_SLIDER, [this](lv_event_t*) { handle_grind_freshness_hours_slider(); });
     EventBridgeLVGL::register_handler(ET::GRIND_FRESHNESS_HOURS_SLIDER_RELEASED, [this](lv_event_t*) { handle_grind_freshness_hours_slider_released(); });
 
+    EventBridgeLVGL::register_handler(ET::PF_WEIGH_0, [this](lv_event_t*) { handle_pf_weigh(0); });
+    EventBridgeLVGL::register_handler(ET::PF_WEIGH_1, [this](lv_event_t*) { handle_pf_weigh(1); });
+    EventBridgeLVGL::register_handler(ET::PF_CLEAR_0, [this](lv_event_t*) { handle_pf_clear(0); });
+    EventBridgeLVGL::register_handler(ET::PF_CLEAR_1, [this](lv_event_t*) { handle_pf_clear(1); });
+
     EventBridgeLVGL::register_handler(ET::BRIGHTNESS_NORMAL_SLIDER, [this](lv_event_t*) { handle_brightness_normal_slider(); });
     EventBridgeLVGL::register_handler(ET::BRIGHTNESS_NORMAL_SLIDER_RELEASED, [this](lv_event_t*) { handle_brightness_normal_slider_released(); });
     EventBridgeLVGL::register_handler(ET::BRIGHTNESS_SCREENSAVER_SLIDER, [this](lv_event_t*) { handle_brightness_screensaver_slider(); });
@@ -627,4 +632,48 @@ void MenuUIController::static_motor_timer_cb(lv_timer_t* timer) {
     if (controller) {
         controller->motor_timer_cb(timer);
     }
+}
+
+void MenuUIController::handle_pf_weigh(int index) {
+    if (!ui_manager_) return;
+
+    struct WeighData {
+        UIManager* ui_mgr;
+        int        pf_index;
+        uint32_t   start_ms;
+    };
+
+    char msg[64];
+    snprintf(msg, sizeof(msg), "Place %s portafilter\non scale...",
+             PortafilterManager::get_name(index));
+    BlockingOperationOverlay::getInstance().show(msg);
+
+    auto* data = new WeighData{ui_manager_, index, millis()};
+    lv_timer_t* t = lv_timer_create([](lv_timer_t* t) {
+        auto* d = static_cast<WeighData*>(lv_timer_get_user_data(t));
+        if ((millis() - d->start_ms) > PF_WEIGH_TIMEOUT_MS) {
+            BlockingOperationOverlay::getInstance().hide();
+            lv_timer_del(t);
+            delete d;
+            return;
+        }
+        auto* sensor = d->ui_mgr->hardware_manager->get_weight_sensor();
+        if (!sensor || !sensor->data_ready()) return;
+        const float weight = sensor->get_weight_low_latency();
+        if (weight > PF_DETECT_MIN_WEIGHT_G && sensor->is_settled()) {
+            d->ui_mgr->portafilter_manager_.set_reference_weight(d->pf_index, weight);
+            d->ui_mgr->portafilter_manager_.save(d->pf_index);
+            d->ui_mgr->menu_screen.update_portafilter_ref_weight(d->pf_index, weight);
+            BlockingOperationOverlay::getInstance().hide();
+            lv_timer_del(t);
+            delete d;
+        }
+    }, 200, data);
+    (void)t;  // repeat count defaults to infinite
+}
+
+void MenuUIController::handle_pf_clear(int index) {
+    if (!ui_manager_) return;
+    ui_manager_->portafilter_manager_.clear(index);
+    ui_manager_->menu_screen.update_portafilter_ref_weight(index, 0.0f);
 }

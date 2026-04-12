@@ -30,6 +30,8 @@ public:
     void handle_auto_return_toggle();
     void handle_grind_freshness_hours_slider();
     void handle_grind_freshness_hours_slider_released();
+    void handle_pf_weigh(int index);
+    void handle_pf_clear(int index);
     void handle_brightness_normal_slider();
     void handle_brightness_normal_slider_released();
     void handle_brightness_screensaver_slider();

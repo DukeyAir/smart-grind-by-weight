@@ -43,6 +43,7 @@ void UIManager::init(HardwareManager* hw_mgr, StateMachine* sm,
     register_controller_events();
 
     refresh_auto_action_settings();
+    portafilter_manager_.init();
 
     if (grind_controller) {
         grind_controller->set_diagnostics_controller(diagnostics_controller_.get());
@@ -225,6 +226,9 @@ void UIManager::switch_to_state(UIState new_state) {
 
         case UIState::MENU:
             menu_screen.show();
+            for (int i = 0; i < PortafilterManager::PF_COUNT; ++i) {
+                menu_screen.update_portafilter_ref_weight(i, portafilter_manager_.get_reference_weight(i));
+            }
             break;
 
         case UIState::CALIBRATION: {
@@ -340,7 +344,8 @@ void UIManager::refresh_auto_action_settings() {
 }
 
 void UIManager::update_auto_actions() {
-    if ((!auto_actions_.auto_start_enabled && !auto_actions_.auto_return_enabled) ||
+    if ((!auto_actions_.auto_start_enabled && !auto_actions_.auto_return_enabled &&
+         !portafilter_manager_.any_configured()) ||
         !hardware_manager || !state_machine) {
         return;
     }
@@ -358,6 +363,27 @@ void UIManager::update_auto_actions() {
     const uint32_t now = millis();
     const bool grinder_active = (grind_controller && grind_controller->is_active());
     const bool on_ready_tab = state_machine->is_state(UIState::READY) && current_tab < 3;
+
+    // Portafilter detection — runs before auto-start so the correct profile tab is
+    // active when the grind fires.
+    if (portafilter_manager_.any_configured() && on_ready_tab && !grinder_active) {
+        const float pf_weight = sensor->get_weight_low_latency();
+        if (pf_weight < PF_DETECT_MIN_WEIGHT_G) {
+            portafilter_detection_ran_ = false;  // re-arm when scale is emptied
+        } else if (!portafilter_detection_ran_ && sensor->is_settled()) {
+            int match = portafilter_manager_.detect(pf_weight);
+            if (match >= 0) {
+                if (ready_controller_) {
+                    ready_controller_->handle_tab_change(match);
+                    ready_screen.set_active_tab(match);
+                }
+                char msg[48];
+                snprintf(msg, sizeof(msg), "%s detected", PortafilterManager::get_name(match));
+                show_toast(msg);
+            }
+            portafilter_detection_ran_ = true;
+        }
+    }
 
     if (auto_actions_.auto_start_enabled && on_ready_tab && !grinder_active && grinding_controller_) {
         auto* filter = sensor->get_raw_filter();
@@ -424,4 +450,32 @@ void UIManager::update_auto_actions() {
             }
         }
     }
+}
+
+void UIManager::show_toast(const char* message, uint32_t duration_ms) {
+    lv_obj_t* toast = lv_obj_create(lv_layer_top());
+    lv_obj_set_size(toast, 220, LV_SIZE_CONTENT);
+    lv_obj_align(toast, LV_ALIGN_BOTTOM_MID, 0, -60);
+    lv_obj_set_style_bg_color(toast, lv_color_hex(0x222222), 0);
+    lv_obj_set_style_bg_opa(toast, LV_OPA_90, 0);
+    lv_obj_set_style_radius(toast, 12, 0);
+    lv_obj_set_style_border_width(toast, 0, 0);
+    lv_obj_set_style_pad_hor(toast, 16, 0);
+    lv_obj_set_style_pad_ver(toast, 12, 0);
+
+    lv_obj_t* label = lv_label_create(toast);
+    lv_label_set_text(label, message);
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(label, 190);
+    lv_obj_center(label);
+
+    lv_timer_t* t = lv_timer_create([](lv_timer_t* t) {
+        lv_obj_t* obj = static_cast<lv_obj_t*>(lv_timer_get_user_data(t));
+        if (obj) lv_obj_del(obj);
+        lv_timer_del(t);
+    }, duration_ms, toast);
+    lv_timer_set_repeat_count(t, 1);
 }
